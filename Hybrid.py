@@ -363,7 +363,7 @@ class RecommenderSystemHybrid:
         self.num_users = num_users
         self.num_items = num_items
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.device = "cpu"  # force CPU if needed
+        # self.device = "cpu"  # force CPU if needed
 
         self.item_encoder = item_encoder
         self.item_feats = {k: v.to(self.device) for k, v in self.item_encoder.get_all_tensors(self.device).items()}
@@ -506,10 +506,10 @@ if __name__ == "__main__":
     )
 
     # Train
-    rec.fit(dataset, epochs=5, batch_size=8)
+    rec.fit(dataset, epochs=110, batch_size=1)
 
     # Recommend for user 1
-    uidx = idmaps.user2idx[1]
+    uidx = 0
     recs = rec.recommend(uidx, top_n=3, seen_items=seen_sets.get(uidx, set()))
     print("Top recs (item_idx):", recs)
     print("Top recs (raw item_id):", [idmaps.idx2item[i] for i in recs])
