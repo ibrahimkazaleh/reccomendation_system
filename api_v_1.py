@@ -30,15 +30,15 @@ class TrainData(BaseModel):
 # ----------------------------
 # تحميل النموذج المدرب مسبقاً
 # ----------------------------
-MODEL_PATH = f"model/Hybrid_model_v{v}.pt"
+MODEL_PATH = f"model/training_model/Hybrid_model_v{v}.pt"
 
-with open(f"model/idmaps_v{v}.pkl", "rb") as f:
+with open(f"model/file_saved/idmaps_v{v}.pkl", "rb") as f:
     idmaps = pickle.load(f)
 
-with open(f"model/item_encoder_v{v}.pkl", "rb") as f:
+with open(f"model/file_saved/item_encoder_v{v}.pkl", "rb") as f:
     item_encoder = pickle.load(f)
 
-with open(f"model/seen_sets_v{v}.pkl", "rb") as f:
+with open(f"model/file_saved/seen_sets_v{v}.pkl", "rb") as f:
     seen_sets = pickle.load(f)
 
 rec = RecommenderSystemHybrid(
@@ -130,13 +130,13 @@ def retrain(data: TrainData):
     # 7) حفظ كل شيء
     rec.save(MODEL_PATH)
 
-    with open(f"model/idmaps_v{v}.pkl", "wb") as f:
+    with open(f"model/file_saved/idmaps_v{v}.pkl", "wb") as f:
         pickle.dump(idmaps, f)
 
-    with open(f"model/item_encoder_v{v}.pkl", "wb") as f:
+    with open(f"model/file_saved/item_encoder_v{v}.pkl", "wb") as f:
         pickle.dump(item_encoder, f)
 
-    with open(f"model/seen_sets_v{v}.pkl", "wb") as f:
+    with open(f"model/file_saved/seen_sets_v{v}.pkl", "wb") as f:
         pickle.dump(seen_sets, f)
 
     return {"status": "Model retrained and saved successfully"}
