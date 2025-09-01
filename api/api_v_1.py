@@ -14,7 +14,7 @@ from Hybrid import RecommenderSystemHybrid, build_id_maps, ItemFeatureEncoder
 
 # ----------------------------
 # تعريف API
-app = FastAPI(title="Hybrid Recommender API")
+app = FastAPI(title="../Hybrid Recommender API")
 
 # ----------------------------
 # نموذج البيانات القادمة
@@ -30,15 +30,15 @@ class TrainData(BaseModel):
 # ----------------------------
 # تحميل النموذج المدرب مسبقاً
 # ----------------------------
-MODEL_PATH = f"model/training_model/Hybrid_model_v{v}.pt"
+MODEL_PATH = f"../model/training_model/Hybrid_model_v{v}.pt"
 
-with open(f"model/file_saved/idmaps_v{v}.pkl", "rb") as f:
+with open(f"../model/file_saved/idmaps_v{v}.pkl", "rb") as f:
     idmaps = pickle.load(f)
 
-with open(f"model/file_saved/item_encoder_v{v}.pkl", "rb") as f:
+with open(f"../model/file_saved/item_encoder_v{v}.pkl", "rb") as f:
     item_encoder = pickle.load(f)
 
-with open(f"model/file_saved/seen_sets_v{v}.pkl", "rb") as f:
+with open(f"../model/file_saved/seen_sets_v{v}.pkl", "rb") as f:
     seen_sets = pickle.load(f)
 
 rec = RecommenderSystemHybrid(
