@@ -5,12 +5,15 @@ from typing import List, Optional, Dict, Any
 import torch
 import pandas as pd
 import numpy as np
+# fromHybrid import RecommenderSystemHybrid, build_id_maps, ItemFeatureEncoder
 
 v = 2
-# ----------------------------
-# استيراد كلاس النظام الهجين
-# ----------------------------
+# ---------------------------
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from Hybrid import RecommenderSystemHybrid, build_id_maps, ItemFeatureEncoder
+
 
 # ----------------------------
 # تعريف API
