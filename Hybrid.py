@@ -362,8 +362,8 @@ class RecommenderSystemHybrid:
     def __init__(self, num_users: int, num_items: int, item_encoder: ItemFeatureEncoder, dim: int = 64, lr: float = 1e-3, device: Optional[str]=None):
         self.num_users = num_users
         self.num_items = num_items
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        # self.device = "cpu"  # force CPU if needed
+        # self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = "cpu"  # force CPU if needed
 
         self.item_encoder = item_encoder
         self.item_feats = {k: v.to(self.device) for k, v in self.item_encoder.get_all_tensors(self.device).items()}
