@@ -3,5 +3,5 @@ uvicorn
 pandas
 numpy
 pydantic
-torch==2.7.1+cpu
+torch==2.2.2
 -f https://download.pytorch.org/whl/torch_stable.html
