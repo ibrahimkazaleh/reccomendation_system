@@ -43,7 +43,7 @@ MODEL_PATH   = os.path.join(BASE_DIR, "..", "model", "training_model", "Hybrid_m
 
 with open(idmaps_path, "rb") as f:
     idmaps = pickle.load(f)
-
+    
 with open(item_encoder_path, "rb") as f:
     item_encoder = pickle.load(f)
 
