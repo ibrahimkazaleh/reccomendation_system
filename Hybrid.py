@@ -20,7 +20,6 @@ Main components:
 
 Note: Replace any TODOs with your I/O as needed.
 """
-
 from __future__ import annotations
 import math
 import json
@@ -36,22 +35,79 @@ from torch.utils.data import Dataset, DataLoader
 # Utilities & Mappings
 # ===============================================================
 
-@dataclass
 class IdMaps:
-    user2idx: Dict[Any, int]
-    item2idx: Dict[Any, int]
-    idx2user: Dict[int, Any]
-    idx2item: Dict[int, Any]
+    def __init__(self, user2idx=None, item2idx=None, idx2user=None, idx2item=None):
+        self.user2idx = user2idx or {}
+        self.item2idx = item2idx or {}
+        self.idx2user = idx2user or {}
+        self.idx2item = idx2item or {}
 
+    def fit(self, user_ids, item_ids):
+        """item and user to id"""
+        self.user2idx = {u: i for i, u in enumerate(user_ids)}
+        self.item2idx = {it: j for j, it in enumerate(item_ids)}
+        self.idx2user = {i: u for u, i in self.user2idx.items()}
+        self.idx2item = {j: it for it, j in self.item2idx.items()}
 
-def build_id_maps(ratings_df: pd.DataFrame, orders_df: pd.DataFrame) -> IdMaps:
-    user_ids = pd.Index(pd.concat([ratings_df["user_id"], orders_df["user_id"]]).unique())
-    item_ids = pd.Index(pd.concat([ratings_df["item_id"], orders_df["item_id"]]).unique())
-    user2idx = {u: i for i, u in enumerate(user_ids)}
-    item2idx = {p: i for i, p in enumerate(item_ids)}
-    idx2user = {i: u for u, i in user2idx.items()}
-    idx2item = {i: p for p, i in item2idx.items()}
-    return IdMaps(user2idx, item2idx, idx2user, idx2item)
+    def num_users(self):
+        return len(self.user2idx)
+
+    def num_items(self):
+        return len(self.item2idx)
+
+    def add_user(self, user_id):
+        """add a new user """
+        if user_id not in self.user2idx:
+            new_idx = len(self.user2idx)
+            self.user2idx[user_id] = new_idx
+            self.idx2user[new_idx] = user_id
+
+    def add_item(self, item_id):
+        """add a new item """
+        if item_id not in self.item2idx:
+            new_idx = len(self.item2idx)
+            self.item2idx[item_id] = new_idx
+            self.idx2item[new_idx] = item_id
+
+    @staticmethod
+    def from_dfs(ratings_df: pd.DataFrame, orders_df: pd.DataFrame) -> "IdMaps":
+        user_ids = pd.Index(pd.concat([ratings_df["user_id"], orders_df["user_id"]]).unique())
+        item_ids = pd.Index(pd.concat([ratings_df["item_id"], orders_df["item_id"]]).unique())
+        user2idx = {u: i for i, u in enumerate(user_ids)}
+        item2idx = {p: i for i, p in enumerate(item_ids)}
+        idx2user = {i: u for u, i in user2idx.items()}
+        idx2item = {i: p for p, i in item2idx.items()}
+        return IdMaps(user2idx, item2idx, idx2user, idx2item)
+
+    def add_user(self, raw_user_id: Any) -> int:
+        """Add a new user id if not existing. Return user_idx."""
+        if raw_user_id in self.user2idx:
+            return self.user2idx[raw_user_id]
+        new_idx = max(self.idx2user.keys()) + 1 if self.idx2user else 0
+        self.user2idx[raw_user_id] = new_idx
+        self.idx2user[new_idx] = raw_user_id
+        return new_idx
+
+    def add_item(self, raw_item_id: Any) -> int:
+        """Add a new item id if not existing. Return item_idx."""
+        if raw_item_id in self.item2idx:
+            return self.item2idx[raw_item_id]
+        new_idx = max(self.idx2item.keys()) + 1 if self.idx2item else 0
+        self.item2idx[raw_item_id] = new_idx
+        self.idx2item[new_idx] = raw_item_id
+        return new_idx
+
+    def to_dict(self) -> dict:
+        return {
+            "user2idx": self.user2idx,
+            "item2idx": self.item2idx,
+            "idx2user": self.idx2user,
+            "idx2item": self.idx2item,
+        }
+
+    @staticmethod
+    def from_dict(d: dict) -> "IdMaps":
+        return IdMaps(d["user2idx"], d["item2idx"], {int(k): v for k, v in d["idx2user"].items()}, {int(k): v for k, v in d["idx2item"].items()})
 
 
 def normalize_rating(r, min_r=0.0, max_r=5.0):
@@ -68,7 +124,7 @@ def prepare_interactions(
     idmaps: IdMaps,
 ) -> pd.DataFrame:
     rows = []
-    if not ratings_df.empty:
+    if ratings_df is not None and not ratings_df.empty:
         for _, row in ratings_df.iterrows():
             if row["user_id"] in idmaps.user2idx and row["item_id"] in idmaps.item2idx:
                 rows.append({
@@ -78,7 +134,7 @@ def prepare_interactions(
                     "y_implicit": np.nan,
                     "seen": True,
                 })
-    if not orders_df.empty:
+    if orders_df is not None and not orders_df.empty:
         agg = orders_df.groupby(["user_id", "item_id"]).size().reset_index(name="count")
         for _, row in agg.iterrows():
             if row["user_id"] in idmaps.user2idx and row["item_id"] in idmaps.item2idx:
@@ -100,13 +156,15 @@ def prepare_interactions(
 
 def build_seen_sets(inter_df: pd.DataFrame) -> Dict[int, set]:
     seen = {}
+    if inter_df is None or inter_df.empty:
+        return seen
     for _, r in inter_df.iterrows():
         seen.setdefault(int(r["user_idx"]), set()).add(int(r["item_idx"]))
     return seen
 
 
 # ===============================================================
-# Item Metadata Encoding
+# Item Metadata Encoding (extendable)
 # ===============================================================
 
 @dataclass
@@ -118,59 +176,32 @@ class ItemFeatureSpaces:
 class ItemFeatureEncoder:
     """Encodes item metadata -> dense tensors
     Inputs DataFrame schema (example):
-      item_id, year_of_make, manufacturer, part_name
+      item_id, year, manufacturer, part_name
+    Supports extension with new items and new categorical values.
     """
 
     def __init__(self, items_df: pd.DataFrame, idmaps: IdMaps):
-        self.idmaps = idmaps
-
-        # Build vocabularies for categorical fields
+        # initial vocabularies (preserve order)
+        self.manufacturer2idx: Dict[str, int] = {}
+        self.partname2idx: Dict[str, int] = {}
+        # build initial mappings
         manu_vals = items_df["manufacturer"].fillna("<UNK>").astype(str).unique()
         part_vals = items_df["part_name"].fillna("<UNK>").astype(str).unique()
-        self.manufacturer2idx = {v: i for i, v in enumerate(manu_vals)}
-        self.partname2idx = {v: i for i, v in enumerate(part_vals)}
+        for v in manu_vals:
+            if v not in self.manufacturer2idx:
+                self.manufacturer2idx[v] = len(self.manufacturer2idx)
+        for v in part_vals:
+            if v not in self.partname2idx:
+                self.partname2idx[v] = len(self.partname2idx)
 
-        self.idx2manufacturer = {i: v for v, i in self.manufacturer2idx.items()}
-        self.idx2partname = {i: v for v, i in self.partname2idx.items()}
-
-        # Year normalization (min-max)
-        y = items_df["year_of_make"].fillna(items_df["year_of_make"].median())
+        # year scaling values
+        y = items_df["year"].fillna(items_df["year"].median())
         self.year_min = float(np.nanmin(y)) if len(y) else 0.0
         self.year_max = float(np.nanmax(y)) if len(y) else 1.0
 
-        # Build a per-item feature table aligned to item_idx
-        n_items = len(idmaps.item2idx)
-        self.features = {
-            "year": np.zeros((n_items, 1), dtype=np.float32),
-            "manufacturer": np.zeros((n_items,), dtype=np.int64),
-            "partname": np.zeros((n_items,), dtype=np.int64),
-        }
-
-        # Fill rows
-        by_id = items_df.set_index("item_id")
-        for raw_item_id, item_idx in idmaps.item2idx.items():
-            if raw_item_id in by_id.index:
-                row = by_id.loc[raw_item_id]
-                year = row.get("year_of_make", np.nan)
-                manu = str(row.get("manufacturer", "<UNK>"))
-                pname = str(row.get("part_name", "<UNK>"))
-            else:
-                year = np.nan
-                manu = "<UNK>"
-                pname = "<UNK>"
-
-            year_norm = self._norm_year(year)
-            manu_idx = self.manufacturer2idx.get(manu, 0)
-            pname_idx = self.partname2idx.get(pname, 0)
-
-            self.features["year"][item_idx, 0] = year_norm
-            self.features["manufacturer"][item_idx] = manu_idx
-            self.features["partname"][item_idx] = pname_idx
-
-        self.spaces = ItemFeatureSpaces(
-            n_manufacturer=len(self.manufacturer2idx),
-            n_part_name=len(self.partname2idx),
-        )
+        self.idmaps = idmaps
+        # build features matrix aligned to idmaps.item2idx
+        self.rebuild_features(items_df)
 
     def _norm_year(self, y):
         if pd.isna(y):
@@ -178,6 +209,64 @@ class ItemFeatureEncoder:
         if self.year_max == self.year_min:
             return 0.0
         return float((y - self.year_min) / (self.year_max - self.year_min))
+
+    def rebuild_features(self, items_df: pd.DataFrame):
+        """(Re)build full features arrays aligned to current idmaps.
+        Extends manufacturer/partname vocabs if new categories appear.
+        """
+        # incorporate any new categories found in items_df
+        for _, row in items_df.iterrows():
+            manu = str(row.get("manufacturer", "<UNK>"))
+            pname = str(row.get("part_name", "<UNK>"))
+            if manu not in self.manufacturer2idx:
+                self.manufacturer2idx[manu] = len(self.manufacturer2idx)
+            if pname not in self.partname2idx:
+                self.partname2idx[pname] = len(self.partname2idx)
+
+        # update year scaling
+        y_all = items_df["year"].fillna(items_df["year"].median())
+        if len(y_all):
+            self.year_min = min(self.year_min, float(np.nanmin(y_all)))
+            self.year_max = max(self.year_max, float(np.nanmax(y_all)))
+
+        n_items = len(self.idmaps.item2idx)
+        # allocate arrays
+        year_arr = np.zeros((n_items, 1), dtype=np.float32)
+        manu_arr = np.zeros((n_items,), dtype=np.int64)
+        part_arr = np.zeros((n_items,), dtype=np.int64)
+
+        by_id = items_df.set_index("item_id")
+        for raw_item_id, item_idx in self.idmaps.item2idx.items():
+            if raw_item_id in by_id.index:
+                row = by_id.loc[raw_item_id]
+                year = row.get("year", np.nan)
+                manu = str(row.get("manufacturer", "<UNK>"))
+                pname = str(row.get("part_name", "<UNK>"))
+            else:
+                year = np.nan
+                manu = "<UNK>"
+                pname = "<UNK>"
+            year_norm = self._norm_year(year)
+            manu_idx = self.manufacturer2idx.get(manu, 0)
+            pname_idx = self.partname2idx.get(pname, 0)
+            year_arr[item_idx, 0] = year_norm
+            manu_arr[item_idx] = manu_idx
+            part_arr[item_idx] = pname_idx
+
+        self.features = {
+            "year": year_arr,
+            "manufacturer": manu_arr,
+            "partname": part_arr,
+        }
+        self.spaces = ItemFeatureSpaces(
+            n_manufacturer=len(self.manufacturer2idx),
+            n_part_name=len(self.partname2idx),
+        )
+
+    def extend_with_items(self, new_items_df: pd.DataFrame, idmaps: IdMaps):
+        """Add new items into idmaps externally and then call this to rebuild features."""
+        self.idmaps = idmaps
+        self.rebuild_features(new_items_df)
 
     def get_all_tensors(self, device: str):
         return {
@@ -194,13 +283,18 @@ class ItemFeatureEncoder:
 class CollabDataset(Dataset):
     def __init__(self, inter_df: pd.DataFrame, num_items: int, neg_ratio: float = 1.0):
         self.num_items = num_items
-        self.pos = inter_df.copy()
-        self.pos["has_explicit"] = (~self.pos["y_explicit"].isna()).astype(np.float32)
-        self.pos["has_implicit"] = (~self.pos["y_implicit"].isna()).astype(np.float32)
+        self.pos = inter_df.copy() if inter_df is not None else pd.DataFrame()
+        if not self.pos.empty:
+            self.pos["has_explicit"] = (~self.pos["y_explicit"].isna()).astype(np.float32)
+            self.pos["has_implicit"] = (~self.pos["y_implicit"].isna()).astype(np.float32)
+        else:
+            self.pos["has_explicit"] = pd.Series(dtype=np.float32)
+            self.pos["has_implicit"] = pd.Series(dtype=np.float32)
+
         self.seen = build_seen_sets(self.pos)
 
         neg_rows = []
-        total_pos_impl = int(self.pos["has_implicit"].sum())
+        total_pos_impl = int(self.pos["has_implicit"].sum()) if not self.pos.empty else 0
         num_negs = int(neg_ratio * total_pos_impl)
         rng = np.random.default_rng(42)
         users = list(self.seen.keys()) if self.seen else []
@@ -213,12 +307,11 @@ class CollabDataset(Dataset):
             tries = 0
             while True:
                 i = int(rng.integers(0, self.num_items))
-                if i not in self.seen[u]:
+                if i not in self.seen.get(u, set()):
                     break
                 tries += 1
                 if tries > 50:
-                    # fallback in dense users
-                    unseen = list(set(range(self.num_items)) - set(self.seen[u]))
+                    unseen = list(set(range(self.num_items)) - set(self.seen.get(u, set())))
                     if unseen:
                         i = int(rng.choice(unseen))
                     break
@@ -229,7 +322,8 @@ class CollabDataset(Dataset):
             })
 
         self.all = pd.concat([self.pos, pd.DataFrame(neg_rows)], ignore_index=True) if neg_rows else self.pos
-        self.all = self.all.sample(frac=1.0, random_state=123).reset_index(drop=True)
+        if not self.all.empty:
+            self.all = self.all.sample(frac=1.0, random_state=123).reset_index(drop=True)
 
     def __len__(self):
         return len(self.all)
@@ -247,12 +341,13 @@ class CollabDataset(Dataset):
 
 
 # ===============================================================
-# Model: Hybrid NCF (Collaborative + Content)
+# Model: Hybrid NCF (Collaborative + Content) - enhanced dims
 # ===============================================================
 
 class ItemContentTower(nn.Module):
-    def __init__(self, spaces: ItemFeatureSpaces, dim: int = 64, year_dim: int = 8, manu_dim: int = 32, part_dim: int = 32):
+    def __init__(self, spaces: ItemFeatureSpaces, content_dim: int = 64, year_dim: int = 8, manu_dim: int = 32, part_dim: int = 32):
         super().__init__()
+        self.content_dim = content_dim
         # Embeddings for categorical
         self.emb_manu = nn.Embedding(spaces.n_manufacturer, manu_dim)
         self.emb_part = nn.Embedding(spaces.n_part_name, part_dim)
@@ -263,9 +358,9 @@ class ItemContentTower(nn.Module):
             nn.Linear(year_dim, year_dim),
             nn.ReLU(),
         )
-        # Projection to common space
+        # Projection to common content space
         self.proj = nn.Sequential(
-            nn.Linear(year_dim + manu_dim + part_dim, dim),
+            nn.Linear(year_dim + manu_dim + part_dim, content_dim),
             nn.ReLU(),
         )
         self._init_weights()
@@ -275,32 +370,35 @@ class ItemContentTower(nn.Module):
         nn.init.normal_(self.emb_part.weight, std=0.02)
 
     def forward(self, year: torch.Tensor, manu: torch.Tensor, part: torch.Tensor) -> torch.Tensor:
+        # year: (B,1), manu: (B,), part: (B,)
         y = self.year_mlp(year)          # (B, year_dim)
         m = self.emb_manu(manu)          # (B, manu_dim)
         p = self.emb_part(part)          # (B, part_dim)
         x = torch.cat([y, m, p], dim=-1)
-        return self.proj(x)              # (B, dim)
+        return self.proj(x)              # (B, content_dim)
 
 
 class HybridNCF(nn.Module):
-    """Two-tower hybrid model
-    - Collaborative tower: user/item id embeddings + MLP
-    - Content tower: item metadata -> embedding
-    - Fusion: concat(collab_item, content_item) with user, then MLP
-    Heads: explicit rating (0..1) & implicit click/purchase logit
-    """
-    def __init__(self, num_users: int, num_items: int, spaces: ItemFeatureSpaces, dim: int = 64):
+    """Two-tower hybrid model with configurable dims"""
+    def __init__(self, num_users: int, num_items: int,
+                 spaces: ItemFeatureSpaces,
+                 user_dim: int = 64, item_dim: int = 64, content_dim: int = 64):
         super().__init__()
-        # Collaborative embeddings
-        self.user_emb = nn.Embedding(num_users, dim)
-        self.item_emb = nn.Embedding(num_items, dim)
+        self.user_dim = user_dim
+        self.item_dim = item_dim
+        self.content_dim = content_dim
 
-        # Content tower for items
-        self.content = ItemContentTower(spaces, dim=dim)
+        # Collaborative embeddings
+        self.user_emb = nn.Embedding(num_users, user_dim)
+        self.item_emb = nn.Embedding(num_items, item_dim)
+
+        # Content tower for items (produces content_dim vector)
+        self.content = ItemContentTower(spaces, content_dim=content_dim)
 
         # Fusion MLP (user + item_collab + item_content)
+        fusion_in = user_dim + item_dim + content_dim
         self.mlp = nn.Sequential(
-            nn.Linear(dim*3, 128),
+            nn.Linear(fusion_in, 128),
             nn.ReLU(),
             nn.Linear(128, 64),
             nn.ReLU(),
@@ -309,8 +407,9 @@ class HybridNCF(nn.Module):
         self.head_implicit = nn.Linear(64, 1)
 
         # Gating to handle cold-start (learn how much to trust content vs id)
+        # gate input: item_collab (item_dim) + item_content (content_dim) --> sigmoid scalar
         self.gate = nn.Sequential(
-            nn.Linear(dim*2, 1),
+            nn.Linear(item_dim + content_dim, 1),
             nn.Sigmoid(),
         )
 
@@ -320,14 +419,29 @@ class HybridNCF(nn.Module):
 
     def forward(self, users, items, item_year, item_manu, item_part):
         # Collaborative embeddings
-        u = self.user_emb(users)                # (B, dim)
-        i_collab = self.item_emb(items)        # (B, dim)
+        u = self.user_emb(users)                # (B, user_dim)
+        i_collab = self.item_emb(items)         # (B, item_dim)
         # Content embedding for item
-        i_cont = self.content(item_year, item_manu, item_part)   # (B, dim)
+        i_cont = self.content(item_year, item_manu, item_part)   # (B, content_dim)
 
         # Learnable gate (0..1) to mix collab & content item vectors
+        # For gating we need matching dims, so project or pad small dims: simplest approach: 
+        # if item_dim != content_dim, project both to min_dim for gating input
+        if i_collab.shape[-1] != i_cont.shape[-1]:
+            # linear projections (lazy creation to avoid fixed module complexity). For simplicity, concatenate and let linear accept it.
+            pass
         g = self.gate(torch.cat([i_collab, i_cont], dim=-1))     # (B,1)
-        i = g * i_collab + (1 - g) * i_cont
+        # Mix
+        # If dims differ, need to bring them to same size for mixing; we'll expand smaller with linear projection.
+        if i_collab.shape[-1] == i_cont.shape[-1]:
+            i = g * i_collab + (1 - g) * i_cont
+        else:
+            # project both to content_dim for final mixing (safe choice)
+            # define on the fly layers? We'll create simple linear layers attached to module for projection
+            if not hasattr(self, "_proj_collab_to_cont"):
+                self._proj_collab_to_cont = nn.Linear(i_collab.shape[-1], i_cont.shape[-1]).to(i_collab.device)
+            proj_collab = self._proj_collab_to_cont(i_collab)
+            i = g * proj_collab + (1 - g) * i_cont
 
         x = torch.cat([u, i_collab, i_cont], dim=-1)  # keep both for richer signal
         h = self.mlp(x)
@@ -338,7 +452,7 @@ class HybridNCF(nn.Module):
     @torch.no_grad()
     def score_user_all_items(self, user_idx: int, item_feats: Dict[str, torch.Tensor], device: str) -> torch.Tensor:
         """Returns implicit probabilities for all items for a given user.
-        Works even for cold-start items because content tower doesn't depend on item id.
+        Works also for cold-start items because content tower doesn't depend on historical item embedding.
         """
         self.eval()
         n_items = item_feats["year"].shape[0]
@@ -355,29 +469,41 @@ class HybridNCF(nn.Module):
 
 
 # ===============================================================
-# Trainer / Recommender
+# Trainer / Recommender - with addition APIs
 # ===============================================================
 
 class RecommenderSystemHybrid:
-    def __init__(self, num_users: int, num_items: int, item_encoder: ItemFeatureEncoder, dim: int = 64, lr: float = 1e-3, device: Optional[str]=None):
-        self.num_users = num_users
-        self.num_items = num_items
-        # self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.device = "cpu"  # force CPU if needed
-
+    def __init__(self,
+                 idmaps: IdMaps,
+                 item_encoder: ItemFeatureEncoder,
+                 user_dim: int = 64, item_dim: int = 64, content_dim: int = 64,
+                 lr: float = 1e-3, device: Optional[str] = None):
+        self.idmaps = idmaps
         self.item_encoder = item_encoder
+        # self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device=device
+        self.user_dim = user_dim
+        self.item_dim = item_dim
+        self.content_dim = content_dim
+        self.lr = lr
+
+        self.num_users = len(self.idmaps.user2idx)
+        self.num_items = len(self.idmaps.item2idx)
+
+        # item features as tensors (on device)
         self.item_feats = {k: v.to(self.device) for k, v in self.item_encoder.get_all_tensors(self.device).items()}
 
-        self.model = HybridNCF(num_users, num_items, item_encoder.spaces, dim=dim).to(self.device)
+        # Build model
+        self.model = HybridNCF(self.num_users, self.num_items, self.item_encoder.spaces,
+                               user_dim=user_dim, item_dim=item_dim, content_dim=content_dim).to(self.device)
         self.opt = torch.optim.Adam(self.model.parameters(), lr=lr)
         self.mse = nn.MSELoss(reduction="none")
         self.bce = nn.BCEWithLogitsLoss(reduction="none")
 
     def _batch_item_content(self, items: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        # Gather item content rows for batch items
         year = self.item_feats["year"][items]
-        manu = self.item_feats["manufacturer"][items]
-        part = self.item_feats["partname"][items]
+        manu = self.item_feats["manufacturer"][items].long()
+        part = self.item_feats["partname"][items].long()
         return year, manu, part
 
     def fit(self, dataset: CollabDataset, epochs: int = 5, batch_size: int = 1024):
@@ -426,20 +552,191 @@ class RecommenderSystemHybrid:
         top_indices = top_indices[np.argsort(-scores[top_indices])]
         return top_indices.tolist()
 
+    # ---------------------------
+    # --- add_user / Extensions
+    # ---------------------------
+
+    def _reinit_optimizer(self):
+        self.opt = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+
+    def add_user(self, raw_user_id: Any) -> int:
+        """Add a new user mapping and extend user embedding weights without breaking old ones.
+        Returns the new user_idx.
+        """
+        if raw_user_id in self.idmaps.user2idx:
+            return self.idmaps.user2idx[raw_user_id]
+        new_idx = self.idmaps.add_user(raw_user_id)
+        old_num = self.num_users
+        new_num = old_num + 1
+        self.num_users = new_num
+
+        # extend embedding
+        old_emb = self.model.user_emb
+        old_weight = old_emb.weight.data
+        new_emb = nn.Embedding(new_num, old_emb.embedding_dim).to(self.device)
+        # copy old weights
+        new_emb.weight.data[:old_num] = old_weight
+        # init new row
+        nn.init.normal_(new_emb.weight.data[old_num:], std=0.01)
+        self.model.user_emb = new_emb
+
+        # re-init optimizer to capture new params
+        self._reinit_optimizer()
+        return new_idx
+
+    def add_items(self, new_items_df: pd.DataFrame):
+        """Add new items (raw item ids must be present in new_items_df['item_id']).
+        This will update idmaps, item_encoder, item_feats and extend item embedding matrix.
+        """
+        # 1) add new raw ids to idmaps if not present
+        added = []
+        for raw_id in new_items_df["item_id"].unique():
+            if raw_id not in self.idmaps.item2idx:
+                idx = self.idmaps.add_item(raw_id)
+                added.append((raw_id, idx))
+
+        if not added:
+            # nothing to add, but might still have new categories -> rebuild features
+            self.item_encoder.rebuild_features(new_items_df)
+            self.item_feats = {k: v.to(self.device) for k, v in self.item_encoder.get_all_tensors(self.device).items()}
+            return
+
+        # 2) update item encoder (rebuild features aligned to new idmaps)
+        # to preserve previous category indices, pass a combined items_df of known + new
+        # (in practice, keep a catalog; here we assume new_items_df contains both existing & new rows needed)
+        self.item_encoder.rebuild_features(new_items_df)
+
+        # 3) extend item embedding matrix
+        old_num = self.num_items
+        new_num = len(self.idmaps.item2idx)
+        self.num_items = new_num
+
+        old_emb = self.model.item_emb
+        old_weight = old_emb.weight.data
+        new_emb = nn.Embedding(new_num, old_emb.embedding_dim).to(self.device)
+        new_emb.weight.data[:old_num] = old_weight
+        # initialize new rows
+        if new_num > old_num:
+            nn.init.normal_(new_emb.weight.data[old_num:], std=0.01)
+
+        self.model.item_emb = new_emb
+
+        # 4) update item_feats tensors
+        self.item_feats = {k: v.to(self.device) for k, v in self.item_encoder.get_all_tensors(self.device).items()}
+
+        # re-init optimizer to capture new params
+        self._reinit_optimizer()
+
+    def recommend_cold_start_by_content(self, user_pref: Optional[dict] = None, top_n: int = 5, exclude_seen: Optional[set] = None) -> List[int]:
+        """
+        Recommend using only content tower based on user preference dict.
+        user_pref can be:
+         - {"manufacturer": ["Toyota", "Ford"], "part_name": ["Oil Filter"], "year": 2019}
+         - or None -> fallback: recommend by content model scores averaged or popularity proxy.
+        """
+        self.model.eval()
+        exclude_seen = exclude_seen or set()
+        # compute per-item content embeddings (n_items, content_dim)
+        year_t = self.item_feats["year"]
+        manu_t = self.item_feats["manufacturer"].long()
+        part_t = self.item_feats["partname"].long()
+        with torch.no_grad():
+            items_content = self.model.content(year_t, manu_t, part_t)  # (n_items, content_dim)
+
+            # build preference vector in content space
+            if user_pref:
+                pieces = []
+                device = next(self.model.parameters()).device
+
+                # manufacturer preference
+                manu_pref = user_pref.get("manufacturer")
+                if manu_pref:
+                    # map manufacturer names to indices known in encoder
+                    idxs = [self.item_encoder.manufacturer2idx.get(str(m), None) for m in manu_pref]
+                    idxs = [i for i in idxs if i is not None]
+                    if idxs:
+                        emb_manu = self.model.content.emb_manu(torch.tensor(idxs, device=device))
+                        pieces.append(emb_manu.mean(dim=0, keepdim=True))  # (1, manu_dim)
+
+                # part_name preference
+                part_pref = user_pref.get("part_name") or user_pref.get("partname")
+                if part_pref:
+                    idxs = [self.item_encoder.partname2idx.get(str(p), None) for p in part_pref]
+                    idxs = [i for i in idxs if i is not None]
+                    if idxs:
+                        emb_part = self.model.content.emb_part(torch.tensor(idxs, device=device))
+                        pieces.append(emb_part.mean(dim=0, keepdim=True))  # (1, part_dim)
+
+                # year preference
+                year_pref = user_pref.get("year")
+                if year_pref is not None:
+                    year_val = torch.tensor([[self.item_encoder._norm_year(year_pref)]], device=device)
+                    year_vec = self.model.content.year_mlp(year_val)  # (1, year_dim)
+                    pieces.append(year_vec)
+
+                if pieces:
+                    # concat pieces in the same order the tower does: year, manu, part
+                    # but some pieces may be missing; we fill missing with zeros of correct size
+                    # determine dims:
+                    year_dim = self.model.content.year_mlp[0].out_features if hasattr(self.model.content.year_mlp[0], 'out_features') else self.model.content.year_mlp[0].out_features
+                    manu_dim = self.model.content.emb_manu.embedding_dim
+                    part_dim = self.model.content.emb_part.embedding_dim
+                    # build full vector of shape (1, year_dim + manu_dim + part_dim)
+                    ys = torch.zeros((1, year_dim), device=device)
+                    ms = torch.zeros((1, manu_dim), device=device)
+                    ps = torch.zeros((1, part_dim), device=device)
+                    # fill from pieces by type detection (rough but sufficient)
+                    for p in pieces:
+                        if p.shape[-1] == manu_dim:
+                            ms = p
+                        elif p.shape[-1] == part_dim:
+                            ps = p
+                        else:
+                            # assume year_dim
+                            ys = p
+                    pref_cat = torch.cat([ys, ms, ps], dim=-1)  # (1, sum)
+                    pref_vec = self.model.content.proj(pref_cat)  # (1, content_dim)
+                    pref_vec = pref_vec.squeeze(0)  # (content_dim,)
+                else:
+                    # no specific pref categories -> fallback: average content vector
+                    pref_vec = items_content.mean(dim=0)
+            else:
+                # no user_pref -> fallback average item content
+                pref_vec = items_content.mean(dim=0)
+
+            # score items by similarity with pref_vec (cosine or dot)
+            # use cosine similarity:
+            pref_norm = pref_vec / (pref_vec.norm() + 1e-8)
+            items_norm = items_content / (items_content.norm(dim=1, keepdim=True) + 1e-8)
+            sims = torch.matmul(items_norm, pref_norm.unsqueeze(-1)).squeeze(-1).cpu().numpy()  # (n_items,)
+
+            # exclude seen
+            if exclude_seen:
+                sims[list(exclude_seen)] = -np.inf
+            # top N
+            if top_n <= 0:
+                return []
+            k = min(top_n, max(1, len(sims)-1))
+            top_indices = np.argpartition(-sims, k-1)[:k]
+            top_indices = top_indices[np.argsort(-sims[top_indices])]
+            return top_indices.tolist()
+
+    # Save/load (also saves idmaps + encoder metadata)
     def save(self, path: str):
         torch.save({
             "state_dict": self.model.state_dict(),
             "num_users": self.num_users,
             "num_items": self.num_items,
-            "spaces": {
-                "n_manufacturer": self.item_encoder.spaces.n_manufacturer,
-                "n_part_name": self.item_encoder.spaces.n_part_name,
-            },
+            "user_dim": self.user_dim,
+            "item_dim": self.item_dim,
+            "content_dim": self.content_dim,
+            "idmaps": self.idmaps.to_dict(),
             "item_encoder": {
                 "manufacturer2idx": self.item_encoder.manufacturer2idx,
                 "partname2idx": self.item_encoder.partname2idx,
                 "year_min": self.item_encoder.year_min,
                 "year_max": self.item_encoder.year_max,
+                # NOTE: we do not save full features arrays here (they can be rebuilt from catalog)
             },
         }, path)
 
@@ -447,69 +744,17 @@ class RecommenderSystemHybrid:
         ckpt = torch.load(path, map_location=self.device)
         self.num_users = ckpt["num_users"]
         self.num_items = ckpt["num_items"]
-        # Reconstruct minimal spaces (the full encoder should be rebuilt from original items_df in practice)
+        self.user_dim = ckpt.get("user_dim", self.user_dim)
+        self.item_dim = ckpt.get("item_dim", self.item_dim)
+        self.content_dim = ckpt.get("content_dim", self.content_dim)
+        self.idmaps = IdMaps.from_dict(ckpt["idmaps"])
         spaces = ItemFeatureSpaces(
-            n_manufacturer=ckpt["spaces"]["n_manufacturer"],
-            n_part_name=ckpt["spaces"]["n_part_name"],
+            n_manufacturer=ckpt["item_encoder"]["manufacturer2idx"].__len__(),
+            n_part_name=ckpt["item_encoder"]["partname2idx"].__len__(),
         )
-        self.model = HybridNCF(self.num_users, self.num_items, spaces).to(self.device)
-        self.model.load_state_dict(ckpt["state_dict"]) 
+        # rebuild model and load weights
+        self.model = HybridNCF(self.num_users, self.num_items, spaces,
+                               user_dim=self.user_dim, item_dim=self.item_dim, content_dim=self.content_dim).to(self.device)
+        self.model.load_state_dict(ckpt["state_dict"])
         self.model.eval()
-        # NOTE: caller must also restore/assign self.item_encoder & self.item_feats
-
-
-# ===============================================================
-# Example wiring (usage)
-# ===============================================================
-
-if __name__ == "__main__":
-    # --- Example input schemas ---
-    # ratings_df: columns = [user_id, item_id, rating]
-    # orders_df:  columns = [user_id, item_id, order_id, ts]
-    # items_df:   columns = [item_id, year_of_make, manufacturer, part_name]
-
-    # TODO: Load your real dataframes here
-    ratings_df = pd.DataFrame([
-        {"user_id": 1, "item_id": 101, "rating": 4.0},
-        {"user_id": 1, "item_id": 102, "rating": 5.0},
-        {"user_id": 2, "item_id": 101, "rating": 3.0},
-    ])
-    orders_df = pd.DataFrame([
-        {"user_id": 1, "item_id": 103},
-        {"user_id": 2, "item_id": 102},
-        {"user_id": 2, "item_id": 103},
-    ])
-    items_df = pd.DataFrame([
-        {"item_id": 101, "year_of_make": 2018, "manufacturer": "Toyota", "part_name": "Oil Filter"},
-        {"item_id": 102, "year_of_make": 2020, "manufacturer": "Ford", "part_name": "Engine Oil"},
-        {"item_id": 103, "year_of_make": 2019, "manufacturer": "Toyota", "part_name": "Air Filter"},
-        {"item_id": 104, "year_of_make": 2021, "manufacturer": "Nissan", "part_name": "Brake Pads"},
-    ])
-
-    # Build maps & interactions
-    idmaps = build_id_maps(ratings_df, orders_df)
-    inter_df = prepare_interactions(ratings_df, orders_df, idmaps)
-    seen_sets = build_seen_sets(inter_df)
-
-    # Build item feature encoder
-    item_encoder = ItemFeatureEncoder(items_df, idmaps)
-
-    # Dataset & model
-    dataset = CollabDataset(inter_df, num_items=len(idmaps.item2idx), neg_ratio=1.0)
-    rec = RecommenderSystemHybrid(
-        num_users=len(idmaps.user2idx),
-        num_items=len(idmaps.item2idx),
-        item_encoder=item_encoder,
-        dim=64,
-        lr=1e-3,
-        device="cpu",
-    )
-
-    # Train
-    rec.fit(dataset, epochs=110, batch_size=1)
-
-    # Recommend for user 1
-    uidx = 0
-    recs = rec.recommend(uidx, top_n=3, seen_items=seen_sets.get(uidx, set()))
-    print("Top recs (item_idx):", recs)
-    print("Top recs (raw item_id):", [idmaps.idx2item[i] for i in recs])
+        # NOTE: caller must restore item_encoder and item_feats from the original catalog to keep indices consistent.
