@@ -730,7 +730,7 @@ class RecommenderSystemHybrid:
             "user_dim": self.user_dim,
             "item_dim": self.item_dim,
             "content_dim": self.content_dim,
-            "idmaps": self.idmaps,
+            "idmaps": self.idmaps.to_dict(),
             "item_encoder": {
                 "manufacturer2idx": self.item_encoder.manufacturer2idx,
                 "partname2idx": self.item_encoder.partname2idx,
