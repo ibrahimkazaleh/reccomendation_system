@@ -12,7 +12,7 @@ v = 2
 import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from Hybrid import RecommenderSystemHybrid, build_id_maps, ItemFeatureEncoder
+from Hybrid import RecommenderSystemHybrid, ItemFeatureEncoder,IdMaps
 
 
 # ----------------------------
@@ -34,12 +34,12 @@ class TrainData(BaseModel):
 # تحميل النموذج المدرب مسبقاً
 # ----------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # هذا يعطيك مسار api/
-idmaps_path = os.path.join(BASE_DIR, "..", "model", "file_saved", "idmaps_v2.pkl")
-item_encoder_path = os.path.join(BASE_DIR, "..", "model", "file_saved", "item_encoder_v2.pkl")
-seen_sets_path   = os.path.join(BASE_DIR, "..", "model", "file_saved", "seen_sets_v2.pkl")
-MODEL_PATH   = os.path.join(BASE_DIR, "..", "model", "training_model", "Hybrid_model_v2.pt")
+idmaps_path = os.path.join(BASE_DIR, "..", "model", "file_saved", "idmaps_v7.pkl")
+item_encoder_path = os.path.join(BASE_DIR, "..", "model", "file_saved", "item_encoder_v7.pkl")
+seen_sets_path   = os.path.join(BASE_DIR, "..", "model", "file_saved", "seen_sets_v7.pkl")
+MODEL_PATH   = os.path.join(BASE_DIR, "..", "model", "training_model", "Hybrid_model_v4.pt")
 
-# MODEL_PATH = f"../model/training_model/Hybrid_model_v2.pt"
+# state_dict= model.state_dict(),
 
 with open(idmaps_path, "rb") as f:
     idmaps = pickle.load(f)
@@ -51,14 +51,10 @@ with open(seen_sets_path, "rb") as f:
     seen_sets = pickle.load(f)
 
 rec = RecommenderSystemHybrid(
-    num_users=len(idmaps.user2idx),
-    num_items=len(idmaps.item2idx),
-    item_encoder=item_encoder,
-    dim=64,
-    lr=1e-3,
-    device="cpu"
+   idmaps=idmaps,
+   item_encoder=item_encoder,
+
 )
-rec.load(MODEL_PATH)
 
 
 # ----------------------------
@@ -84,7 +80,8 @@ def to_python_type(obj):
 @app.post("/recommend")
 def recommend(data: RequestData):
     if data.user_id not in idmaps.user2idx:
-        return {"error": f"User {data.user_id} not found"}
+        rec.add_user(data.user_id)
+        
 
     user_idx = idmaps.user2idx[data.user_id]
     seen_items = seen_sets.get(data.user_id, set())
@@ -104,48 +101,48 @@ def recommend(data: RequestData):
 # ----------------------------
 # Endpoint: إعادة تدريب النموذج
 # ----------------------------
-@app.post("/retrain")
-def retrain(data: TrainData):
-    global rec, idmaps, item_encoder, seen_sets
+# @app.post("/retrain")
+# def retrain(data: TrainData):
+#     global rec, idmaps, item_encoder, seen_sets
 
-    # 1) تحويل البيانات القادمة إلى DataFrame
-    ratings_df = pd.DataFrame(data.ratings)  # user_id, item_id, rating
-    items_df = pd.DataFrame(data.items)      # item_id, name, manufacturer, year
+#     # 1) تحويل البيانات القادمة إلى DataFrame
+#     ratings_df = pd.DataFrame(data.ratings)  # user_id, item_id, rating
+#     items_df = pd.DataFrame(data.items)      # item_id, name, manufacturer, year
 
-    # 2) بناء idmaps من جديد
-    idmaps = build_id_maps(ratings_df, items_df)
+#     # 2) بناء idmaps من جديد
+#     idmaps = build_id_maps(ratings_df, items_df)
 
-    # 3) بناء item encoder
-    item_encoder = ItemFeatureEncoder(items_df, idmaps)
+#     # 3) بناء item encoder
+#     item_encoder = ItemFeatureEncoder(items_df, idmaps)
 
-    # 4) بناء نموذج جديد
-    rec = RecommenderSystemHybrid(
-        num_users=len(idmaps.user2idx),
-        num_items=len(idmaps.item2idx),
-        item_encoder=item_encoder,
-        dim=64,
-        lr=1e-3,
-        device="cpu"
-    )
+#     # 4) بناء نموذج جديد
+#     rec = RecommenderSystemHybrid(
+#         num_users=len(idmaps.user2idx),
+#         num_items=len(idmaps.item2idx),
+#         item_encoder=item_encoder,
+#         dim=64,
+#         lr=1e-3,
+#         device="cpu"
+    # )
 
-    # 5) تدريب (مثال مبسط: 5 epochs)
-    rec.fit(ratings_df, epochs=5, batch_size=128)
+    # # 5) تدريب (مثال مبسط: 5 epochs)
+    # rec.fit(ratings_df, epochs=5, batch_size=128)
 
-    # 6) بناء seen_sets
-    seen_sets = {}
-    for row in ratings_df.itertuples():
-        seen_sets.setdefault(row.user_id, set()).add(row.item_id)
+    # # 6) بناء seen_sets
+    # seen_sets = {}
+    # for row in ratings_df.itertuples():
+    #     seen_sets.setdefault(row.user_id, set()).add(row.item_id)
 
-    # 7) حفظ كل شيء
-    rec.save(MODEL_PATH)
+    # # 7) حفظ كل شيء
+    # rec.save(MODEL_PATH)
 
-    with open(f"model/file_saved/idmaps_v{v}.pkl", "wb") as f:
-        pickle.dump(idmaps, f)
+    # with open(f"model/file_saved/idmaps_v{v}.pkl", "wb") as f:
+    #     pickle.dump(idmaps, f)
 
-    with open(f"model/file_saved/item_encoder_v{v}.pkl", "wb") as f:
-        pickle.dump(item_encoder, f)
+    # with open(f"model/file_saved/item_encoder_v{v}.pkl", "wb") as f:
+    #     pickle.dump(item_encoder, f)
 
-    with open(f"model/file_saved/seen_sets_v{v}.pkl", "wb") as f:
-        pickle.dump(seen_sets, f)
+    # with open(f"model/file_saved/seen_sets_v{v}.pkl", "wb") as f:
+    #     pickle.dump(seen_sets, f)
 
-    return {"status": "Model retrained and saved successfully"}
+    # return {"status": "Model retrained and saved successfully"}
