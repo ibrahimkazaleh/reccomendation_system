@@ -55,19 +55,6 @@ class IdMaps:
     def num_items(self):
         return len(self.item2idx)
 
-    def add_user(self, user_id):
-        """add a new user """
-        if user_id not in self.user2idx:
-            new_idx = len(self.user2idx)
-            self.user2idx[user_id] = new_idx
-            self.idx2user[new_idx] = user_id
-
-    def add_item(self, item_id):
-        """add a new item """
-        if item_id not in self.item2idx:
-            new_idx = len(self.item2idx)
-            self.item2idx[item_id] = new_idx
-            self.idx2item[new_idx] = item_id
 
     @staticmethod
     def from_dfs(ratings_df: pd.DataFrame, orders_df: pd.DataFrame) -> "IdMaps":
@@ -429,7 +416,7 @@ class HybridNCF(nn.Module):
         # if item_dim != content_dim, project both to min_dim for gating input
         if i_collab.shape[-1] != i_cont.shape[-1]:
             # linear projections (lazy creation to avoid fixed module complexity). For simplicity, concatenate and let linear accept it.
-            pass
+            return []
         g = self.gate(torch.cat([i_collab, i_cont], dim=-1))     # (B,1)
         # Mix
         # If dims differ, need to bring them to same size for mixing; we'll expand smaller with linear projection.
@@ -724,13 +711,14 @@ class RecommenderSystemHybrid:
     # Save/load (also saves idmaps + encoder metadata)
     def save(self, path: str):
         torch.save({
+            "version":1,
             "state_dict": self.model.state_dict(),
             "num_users": self.num_users,
             "num_items": self.num_items,
             "user_dim": self.user_dim,
             "item_dim": self.item_dim,
             "content_dim": self.content_dim,
-            "idmaps": self.idmaps,
+            "idmaps": self.idmaps.to_dict(),
             "item_encoder": {
                 "manufacturer2idx": self.item_encoder.manufacturer2idx,
                 "partname2idx": self.item_encoder.partname2idx,

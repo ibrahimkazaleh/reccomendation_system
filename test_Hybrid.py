@@ -48,7 +48,13 @@ orders_df = pd.DataFrame({
 # print("Ratings:\n", ratings_df.head(), "\n")
 # print("Orders:\n", orders_df.head())
 
-
+# -----------------------------
+# det data frome backend  
+# -----------------------------
+users_df = pd.read_csv('Data/users.csv')
+items_df = pd.read_csv('Data/parts_data.csv')
+ratings_df = pd.read_csv('Data/ratings.csv')
+orders_df = pd.read_csv('Data/orders.csv')
 # -----------------------------
 # idmaps 
 # -----------------------------
@@ -107,13 +113,13 @@ for n in range(0, number_of_user):
 
 
 
-system.save('model/training_model/Hybrid_model_v4.pt')
+system.save('model/training_model/Hybrid_model_v5.pt')
 
 id_maps.user2idx
 
 import pickle
 import os
-v = 7
+v = 8
 os.makedirs("model", exist_ok=True)
 
 # # 1) حفظ النموذج

@@ -34,10 +34,10 @@ class TrainData(BaseModel):
 # تحميل النموذج المدرب مسبقاً
 # ----------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # هذا يعطيك مسار api/
-idmaps_path = os.path.join(BASE_DIR, "..", "model", "file_saved", "idmaps_v7.pkl")
-item_encoder_path = os.path.join(BASE_DIR, "..", "model", "file_saved", "item_encoder_v7.pkl")
-seen_sets_path   = os.path.join(BASE_DIR, "..", "model", "file_saved", "seen_sets_v7.pkl")
-MODEL_PATH   = os.path.join(BASE_DIR, "..", "model", "training_model", "Hybrid_model_v4.pt")
+idmaps_path = os.path.join(BASE_DIR, "..", "model", "file_saved", "idmaps_v8.pkl")
+item_encoder_path = os.path.join(BASE_DIR, "..", "model", "file_saved", "item_encoder_v8.pkl")
+seen_sets_path   = os.path.join(BASE_DIR, "..", "model", "file_saved", "seen_sets_v8.pkl")
+MODEL_PATH   = os.path.join(BASE_DIR, "..", "model", "training_model", "Hybrid_model_v5.pt")
 
 # state_dict= model.state_dict(),
 
